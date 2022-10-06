@@ -211,7 +211,7 @@ def __ATR_bands ( data, t=14 ):
 ###########################
 
 
-#Discord Webhook URL for testing: https://gist.github.com/Bilka2/5dd2ca2b6e9f3573e0c2defe5d3031b2
+#Discord Webhook URL
 discord_url = 'https://discord.com/api/webhooks/1024457008390340660/V5MaHfnUCBwjQw5zlW4DFTj_wEDZsMXGLpy3dxLUv969oz86N0KITLKZds3ju9lC7tvt'
 
 # this is a list of tickers and strategy match for what to buy / sell
