@@ -53,7 +53,7 @@ def taJson(product, exch, myinterval):
 # Method to send message on Discord. You need to create a Discord webhook for your channel and paste it here
 #
 def send_discord_message (discord, ticker, title, description):
-    # curl -i -H "Accept: application/json" -H "Content-Type:application/json" -X POST --data '{"content": "Posted Via Command line"}' https://discord.com/api/webhooks/1026327480900014162/YPhlm0QMkHoOZXmpL2IC1BPwIIWBBm3MEzW02RYHu4yNyYMVOfRXDI8sfkV5HXCjuITG
+    # curl -i -H "Accept: application/json" -H "Content-Type:application/json" -X POST --data '{"content": "Posted Via Command line"}' https://discord.com/api/webhooks/102...../YPhlm.......
 
     my_time         = time.strftime("%Y-%m-%d %H:%M:%S")
     data = {
@@ -86,7 +86,7 @@ def download_pandas ( symbol ):
     symbol = symbol.replace ( '.', '-' )
     ticker = yf.Ticker( symbol )
     hist = ticker.history(period='2y', interval='1d')
-    #return pd.DataFrame(hist)  
+    #return pd.DataFrame(hist)
     dataframe = pd.DataFrame(hist).drop(columns=['Stock Splits', 'Dividends'])
     return pd.DataFrame(dataframe)
 
@@ -126,18 +126,18 @@ def __ATR(df_func):
     true_range = np.max(ranges, axis=1)
 
     df_func['ATR_14'] = true_range.rolling(14).sum()/14
-    
+
     return df_func
 
 
 #############################################
 #####  PANDAS  Commodity Channel Index  #####
-############################################# 
+#############################################
 #def CCI ( data, t=20):
 #  import talib
 #  return talib.CCI ( data['High'], data['Low'], data['Close'], timeperiod=t)
-def __CCI(df, ndays = 20): 
-    df['TP'] = (df['High'] + df['Low'] + df['Close']) / 3 
+def __CCI(df, ndays = 20):
+    df['TP'] = (df['High'] + df['Low'] + df['Close']) / 3
     df['sma'] = df['TP'].rolling(ndays).mean()
     df['mad'] = df['TP'].rolling(ndays).apply(lambda x: pd.Series(x).mad())
     df['CCI'] = (df['TP'] - df['sma']) / (0.015 * df['mad'])
@@ -202,7 +202,7 @@ def __ATR_bands ( data, t=14 ):
 
     atr_band_upper = atr_basis + atr_multiplicator * atr
     atr_band_lower = atr_basis - atr_multiplicator * atr
-    
+
     return atr_band_lower[-1], atr_band_upper[-1]
 
 
@@ -212,8 +212,7 @@ def __ATR_bands ( data, t=14 ):
 
 
 #Discord Webhook URL for testing: https://gist.github.com/Bilka2/5dd2ca2b6e9f3573e0c2defe5d3031b2
-discord_url   = 'https://discord.com/api/webhooks/1026327480900014162/YPhlm0QMkHoOZXmpL2IC1BPwIIWBBm3MEzW02RYHu4yNyYMVOfRXDI8sfkV5HXCjuITG'
-#discord_url = 'https://discord.com/api/webhooks/1024457008390340660/V5MaHfnUCBwjQw5zlW4DFTj_wEDZsMXGLpy3dxLUv969oz86N0KITLKZds3ju9lC7tvt'
+discord_url = 'https://discord.com/api/webhooks/1024457008390340660/V5MaHfnUCBwjQw5zlW4DFTj_wEDZsMXGLpy3dxLUv969oz86N0KITLKZds3ju9lC7tvt'
 
 # this is a list of tickers and strategy match for what to buy / sell
 strategy = []
@@ -344,7 +343,7 @@ for myfile in ticker_files:
             ###################################
             #####  calc DATA :: CCI, ATR  #####
             ###################################
-            df = __CCI(df, 20) 
+            df = __CCI(df, 20)
             df = __ATR(df_func=df)
 
             #################################
@@ -443,7 +442,7 @@ for myfile in ticker_files:
             #discord_message = '  {:8s}  {:10s}   {:8s}%  {:25s}   {:20s} '.format ( symbol, price_string , _change_2dec, recommendation, 'mAVE:' + mave_recommendation )
             #send_discord_message (discord_url, symbol, symbol, discord_message)
 
-            
+
             if ( len ( advice ) > 0):
                 message += symbol + ' # ' + ", ".join( advice )
                 strategy.append ( symbol + ' # ' + ", ".join( advice ) )
@@ -455,12 +454,10 @@ for myfile in ticker_files:
 
             print('--------------------------------------------------------------------')
             time.sleep(2)
-            
+
     #####  BUY / SELL  list  #####
     if ( len ( strategy ) > 0):
         print ("\n\nSTRATEGY results:\n" )
         for line in strategy:
             print ( line )
-
-
 
