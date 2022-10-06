@@ -1,6 +1,7 @@
 # stb
 
 
+```
 $ ./stb.py tickers.json 
 
 
@@ -17,3 +18,4 @@ STRATEGY results:
 
 SPY # STRATEGY  [BULLISH]  (SMA 5,8)  {SMA 5 > 8}
 
+```
