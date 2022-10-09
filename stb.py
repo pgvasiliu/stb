@@ -122,6 +122,9 @@ def __SMA(close, t):
     return mas
 #SMA Ends here
 
+#def __SMA(data, t):
+#    sma = data.rolling(t).mean()
+#    return sma
 
 
 
@@ -205,6 +208,8 @@ def __WILLR (high, low, close, t):
     wr = -100 * ((highh - close) / (highh - lowl))
     return wr
 
+
+#########################
 #####  PANDAS  KDJ  #####
 #########################
 def __KDJ (df, n=9, ph='High', pl='Low', pc='Close'):
@@ -415,10 +420,12 @@ def __ATR_bands ( data, t=14 ):
     atr_multiplicator = 2.0
     atr_basis = __EMA ( data, 20)
 
-    atr_band_upper = atr_basis + atr_multiplicator * atr
-    atr_band_lower = atr_basis - atr_multiplicator * atr
+    
+    atr_band_upper  = atr_basis + atr_multiplicator * atr
+    atr_band_lower  = atr_basis - atr_multiplicator * atr
+    atr_band_middle = atr_basis
 
-    return atr_band_lower[-1], atr_band_upper[-1]
+    return atr_band_lower[-1], atr_band_upper[-1], atr_band_middle[-1]
 
 
 ########################
@@ -541,6 +548,17 @@ def vix(close, low, pd=23, bbl=23, mult=1.9, lb=88, ph=0.85, pl=1.01):
     return green_hist, red_hist
 """
 
+####################################
+#####  PANDAS BOLLINGER BANDS  #####
+####################################
+def __BB (data, lookback):
+    std = data.rolling(lookback).std()
+    upper_bb  = __SMA(data, lookback) + std * 2
+    lower_bb  = __SMA(data, lookback) - std * 2
+    middle_bb = __SMA(data, lookback)
+    return upper_bb, lower_bb, middle_bb
+
+
 
 
 ###########################
@@ -637,8 +655,10 @@ for myfile in ticker_files:
             _stock_k_1 = ind_1d['Stoch.K[1]']  # stock k Previous day
             _stock_d_1 = ind_1d['Stoch.D[1]']  # stock k Previous day
 
-            _macd_orange   = float(ind_1d["MACD.macd"])    # MACD blue   line
-            _macd_blue     = float(ind_1d["MACD.signal"])  # MACD orange line
+            _stock_rsi_k = float(ind_1d['Stoch.RSI.K'])
+
+            #_macd         = float(ind_1d["MACD.macd"])    # MACD blue   line
+            #_macd_signal  = float(ind_1d["MACD.signal"])  # MACD orange line
 
             _ema10  = ind_1d['EMA10']
             _ema20  = ind_1d['EMA20']
@@ -651,9 +671,6 @@ for myfile in ticker_files:
             _cci20_1 = ind_1d['CCI20[1]']
 
             _wr     = ind_1d['W.R']
-
-
-
 
             ###################################
             #####  download PANDAS  data  #####
@@ -710,7 +727,7 @@ for myfile in ticker_files:
             #df = __ATR(df_func=df)
 
 
-     
+            
 
             #################################
             #####  calc DATA :: ATR 14  #####
@@ -748,8 +765,39 @@ for myfile in ticker_files:
             willr_14       = df['WILLR_14'][-1]
             willr_14_1     = df['WILLR_14'][-2]
 
-            df = __MACD (df)
+
+            df       = __MACD (df)
+            _macd         = float(ind_1d["MACD.macd"])
+            #_macd     = df['MACD'][-1]
+            _macd_1   = df['MACD'][-2]
+
+            _macd_hist   = df['MACD_HIST'][-1]
+            _macd_hist_1 = df['MACD_HIST'][-2]
+
+            _macd_signal   = float(ind_1d["MACD.signal"]) 
+            #_macd_signal  = df['MACD_SIGNAL'][-1]
+            _macd_signal_1 = df['MACD_SIGNAL'][-2]
+
             df = __KDJ (df)
+
+
+            df['BB_up'], df['BB_low'], df['BB_middle'] = __BB ( df['Close'], 20 )
+
+
+            ###############################
+            #####  calc TV STOCH RSI  #####
+            ###############################
+            # TradingView's Stoch RSI is different than regular Stoch RSI 
+            # https://github.com/freqtrade/freqtrade/issues/2961
+            period = 14
+            smoothD = 3
+            SmoothK = 3
+            stochrsi  = (df['RSI_14'] - df['RSI_14'].rolling(period).min()) / (df['RSI_14'].rolling(period).max() - df['RSI_14'].rolling(period).min())
+            df['TV_SRSI_k'] = stochrsi.rolling(SmoothK).mean() * 100
+            df['TV_SRSI_d'] = df['TV_SRSI_k'].rolling(smoothD).mean()
+
+
+
 
             ####################################
             #####  FIBONACCI  retracement  #####
@@ -760,7 +808,7 @@ for myfile in ticker_files:
             ########################################
             #####  calc ATR bands ( Keltner )  #####
             ########################################
-            atr_band_lower, atr_band_higher = __ATR_bands ( df, 14 )
+            atr_band_lower, atr_band_higher, atr_band_middle = __ATR_bands ( df, 14 )
 
 
             #df['Golden Cross'] = df['Close'].rolling(50, min_periods=1).mean() - df['Close'].rolling(200, min_periods=1).mean()
@@ -826,12 +874,27 @@ for myfile in ticker_files:
             #if ( _cci20 > -200 ) and ( _cci20 < 200 ) and ( _cci20 < df['CCI'].shift(1).rolling(4).mean()[-1] ):
             #    advice.append("STRATEGY  [BEARISH]  (CCI)")
             
-
-
             #####  (5) MACD  #####
-            #BUY: macd > 0  & macd > macdsignal
-            #SELL: macd < macdsignal
- 
+            # CROSS_OVER from below 0
+            if ( _macd < 0 ) and ( _macd_signal < 0) and ( _macd_hist_1 < 0 ) and (_macd_hist > 0 ) and ( _macd > _macd_1) and ( _macd_signal > _macd_signal_1 ) and ( _macd > _macd_signal ):
+                advice.append("STRATEGY  [BULLISH]  (MACD_CROSS_OVER)")
+
+            # CROSS_UNDER from above 0 
+            if ( _macd > 0) and ( _macd_signal > 0 ) and ( _macd_hist_1 > 0 ) and ( _macd_hist < 0 ):
+                advice.append("STRATEGY  [BEARISH]  (MACD_CROSS_UNDER)")
+
+            if ( _macd < 0 ) and ( _macd_signal < 0 ) and ( _macd > _macd_signal ) and ( _macd_hist > _macd_hist_1):
+                advice.append("STRATEGY  [BULLISH]  (MACD_GOOD_BUY)")
+
+            if ( _macd > 0 ) and ( _macd_signal > 0 ) and ( _macd > _macd_signal ) and ( _macd_hist < _macd_hist_1):
+                advice.append("STRATEGY  [BULLISH]  (MACD_SELL)")
+
+
+            #####  (6)  Stoch RSI  #####
+            # https://github.com/angelassets/Binance-Trading-Bot/blob/Binance-Trading-Bot/modules/rsi_stoch_signalmod_djcommie.py
+            # Stoch.RSI (25 - 52) & Stoch.RSI.K > Stoch.RSI.D, RSI (49-67), EMA10 > EMA20 > EMA100, Stoch.RSI = BUY, RSI = BUY, EMA10 = EMA20 = BUY
+            if (_rsi - _rsi_1 >= 2.5) and ( _rsi >= 49 and _rsi <= 67) and ( _stock_rsi_k >= 25 and _stock_rsi_k <= 58) and '''(EMA10 > EMA20 and EMA20 > EMA100)''' and ( _stock_k - _stock_d >= 4.5):
+                advice.append("STRATEGY  [BULLISH]  (StochRSI)")
 
 
 
