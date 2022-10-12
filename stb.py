@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+from distutils.command.build_py import build_py
 import json
 import math
 import os
@@ -79,6 +80,9 @@ def send_discord_message (discord, ticker, title, description):
 def decimals ( number ):
     f = '{0:.2f}'.format(number)
     return float(f)
+
+def is_close(a, b, tol=1e-8):
+    return np.abs(a - b) < tol
 
 
 #####  PANDAS  data  download  #####
@@ -308,6 +312,7 @@ def __RSI(close, t):
         rsi.append( (100 - (100/(1+rs))) )   #RSI for a particular date
     return rsi
 #RSI Ends Here
+
 """
 data["RSI_144"] = RSI ( _close, 14 )
 def RSI (data, time_window):
@@ -337,6 +342,17 @@ def RSI (data, time_window):
 
     return rsi
 """
+
+def stoch_rsi(rsi, d_window=3, k_window=3, window=14):
+    """
+    Computes the stochastic RSI. Default values are d=3, k=3, window=14.
+    """
+    minrsi = rsi.rolling(window=window, center=False).min()
+    maxrsi = rsi.rolling(window=window, center=False).max()
+    stoch = ((rsi - minrsi) / (maxrsi - minrsi)) * 100
+    K = stoch.rolling(window=k_window, center=False).mean()
+    D = K.rolling(window=d_window, center=False).mean()
+    return K, D
 
 
 ##################################################
@@ -558,15 +574,55 @@ def __BB (data, lookback):
     middle_bb = __SMA(data, lookback)
     return upper_bb, lower_bb, middle_bb
 
+#
+#def add_ema(data, tspan=[12, 26, 21, 50, 34, 55, 99, 200]):
+#    """
+#    Adds Exponential Moving Averages (EMA) to the dataframe. The default timeframes are 12,26,20,50,34 and 55.
+#    """
+#    for t in tspan:
+#        data[f'ema{t}'] = data[CLOSE].ewm(span=t).mean()
+#        data[f'dist_ema{t}'] = data[CLOSE] - data[f'ema{t}']
+#    return data
 
 
+#######################################################
+#####  PANDAS  STOCHASTIC OSCILLATOR CALCULATION  #####
+#######################################################
+
+def __STOCHASTIC (df, k, d):
+#     """
+#     Fast stochastic calculation
+#     %K = (Current Close - Lowest Low)/
+#     (Highest High - Lowest Low) * 100
+#     %D = 3-day SMA of %K
+#
+#     Slow stochastic calculation
+#     %K = %D of fast stochastic
+#     %D = 3-day SMA of %K
+#
+#     When %K crosses above %D, buy signal
+#     When the %K crosses below %D, sell signal
+#     """
+     temp_df = df.copy()
+     # Set minimum low and maximum high of the k stoch
+     low_min = temp_df["Low"].rolling(window=k).min()
+     high_max = temp_df["High"].rolling(window=k).max()
+
+     # Fast Stochastic
+     temp_df['k_fast'] = 100 * (temp_df["Close"] - low_min)/(high_max - low_min)
+     temp_df['d_fast'] = temp_df['k_fast'].rolling(window=d).mean()
+
+     # Slow Stochastic
+     temp_df['k_slow'] = temp_df["d_fast"]
+     temp_df['d_slow'] = temp_df['k_slow'].rolling(window=d).mean()
+     return temp_df
 
 ###########################
 #####  MAIN  PROGRAM  #####
 ###########################
 settings = {
-    "enable_debug": 1,
-    "enable_discord": 0
+    "enable_debug": 0,
+    "enable_discord": 1
 }
 
 #Discord Webhook URL
@@ -655,10 +711,9 @@ for myfile in ticker_files:
             _stock_k_1 = ind_1d['Stoch.K[1]']  # stock k Previous day
             _stock_d_1 = ind_1d['Stoch.D[1]']  # stock k Previous day
 
-            _stock_rsi_k = float(ind_1d['Stoch.RSI.K'])
+            #print ( "Stoch:Last day K1 %s, D1 %s,  CUR: K %s, D %s " % ( _stock_k_1, _stock_d_1,  _stock_k,  _stock_d )    )
 
-            #_macd         = float(ind_1d["MACD.macd"])    # MACD blue   line
-            #_macd_signal  = float(ind_1d["MACD.signal"])  # MACD orange line
+            _stock_rsi_k = float(ind_1d['Stoch.RSI.K'])
 
             _ema10  = ind_1d['EMA10']
             _ema20  = ind_1d['EMA20']
@@ -689,9 +744,9 @@ for myfile in ticker_files:
             close_1  = df['Close'][-2]
 
             # if enable_discord  = 1 ( see setting above )
-            if ( settings['enable_discord']):
-                discord_message = "TICKER: %s   Current: o=%.2f c=%.2f l=%.2f h=%.2f , Previous day: o=%.2f c=%.2f l=%.2f h=%.2f" % ( symbol, _open, _close, _low, _high, open_1, close_1, low_1, high_1)
-                send_discord_message (discord_url, symbol, symbol, discord_message)
+            #if ( settings['enable_discord']):
+            #    discord_message = "TICKER: %s   Current: o=%.2f c=%.2f l=%.2f h=%.2f , Previous day: o=%.2f c=%.2f l=%.2f h=%.2f" % ( symbol, _open, _close, _low, _high, open_1, close_1, low_1, high_1)
+            #    send_discord_message (discord_url, symbol, symbol, discord_message)
 
 
             df['Volume_60D_Mean'] = df['Volume'].rolling(60, min_periods=1).mean()
@@ -704,6 +759,7 @@ for myfile in ticker_files:
             df['SMA_5']   = __SMA ( df['Close'], 5 )
             sma_5         = decimals ( df['SMA_5'][-1] )
             sma_5_1       = decimals ( df['SMA_5'][-2] )
+            #sma_5        = ind_1d['SMA5']
 
             df['SMA_8']   = __SMA ( df['Close'], 8 )
             sma_8         = decimals ( df['SMA_8'][-1] )
@@ -716,6 +772,10 @@ for myfile in ticker_files:
             #####  calc RSI  #####
             ######################
             df['RSI_14']   = __RSI ( df['Close'], 14 )
+
+            df['RSI_14']   = __RSI(df['Close'], 14)
+            #df['Stoch_RSI_K'], df['Stoch_RSI_D'] = stoch_rsi(df['RSI_14'], 3, 3, 14)
+
 
             #sq1, sq2 = ttm_squeeze(df)
 
@@ -744,6 +804,8 @@ for myfile in ticker_files:
             tema_30       = df['TEMA_30'][-1]
             tema_30_1     = df['TEMA_30'][-2]
 
+            df['TEMA_9'] = __TEMA ( df, 9 )
+
 
             ###############################
             #####  calc DATA :: EMA 9 #####
@@ -765,7 +827,12 @@ for myfile in ticker_files:
             willr_14       = df['WILLR_14'][-1]
             willr_14_1     = df['WILLR_14'][-2]
 
-
+            df['WILLR_20'] = __WILLR ( df['High'], df['Low'], df['Close'], 20 )
+             
+            
+            #######################
+            #####  calc MACD  #####
+            #######################
             df       = __MACD (df)
             _macd         = float(ind_1d["MACD.macd"])
             #_macd     = df['MACD'][-1]
@@ -782,11 +849,18 @@ for myfile in ticker_files:
 
 
             df['BB_up'], df['BB_low'], df['BB_middle'] = __BB ( df['Close'], 20 )
+            bb_up     = df['BB_up'][-1]
+            bb_up_1   = df['BB_up'][-2]
 
+            bb_low     = df['BB_low'][-1]
+            bb_low_1   = df['BB_low'][-2]
 
-            ###############################
-            #####  calc TV STOCH RSI  #####
-            ###############################
+            bb_middle     = df['BB_middle'][-1]
+            bb_middle_1   = df['BB_middle'][-2]
+
+            ####################################
+            #####  calc TV STOCHASTIC RSI  #####
+            ####################################
             # TradingView's Stoch RSI is different than regular Stoch RSI 
             # https://github.com/freqtrade/freqtrade/issues/2961
             period = 14
@@ -795,6 +869,15 @@ for myfile in ticker_files:
             stochrsi  = (df['RSI_14'] - df['RSI_14'].rolling(period).min()) / (df['RSI_14'].rolling(period).max() - df['RSI_14'].rolling(period).min())
             df['TV_SRSI_k'] = stochrsi.rolling(SmoothK).mean() * 100
             df['TV_SRSI_d'] = df['TV_SRSI_k'].rolling(smoothD).mean()
+
+
+
+
+
+            ##########################################################
+            #####  calc  STOCHASTIC 10, 6,6 not default 14, 3, 3 #####
+            ##########################################################
+            df = __STOCHASTIC (df, 14,3)
 
 
 
@@ -838,25 +921,34 @@ for myfile in ticker_files:
 
 
             #####  (1) (SMA 5,8): SMA 5, 8 crossover / crossunder  #####
-
             if ( sma_5 > sma_8 ) and ( _close > sma_5 ) and ( _close > sma_8 ) and ( _open < _close ):
                 advice.append("STRATEGY  [BULLISH]  (SMA 5,8)  {SMA 5 > 8}")
 
                 if ( sma_5_1 < sma_8_1 ):
                     advice.append ("STRATEGY  [BULLISH]  (SMA 5,8)  {SMA 5 crossover SMA 8 today}")
 
+            #if r[1]['Close(-2)'] < r[1]['sma5(-2)'] and r[1]['Close(-1)'] > r[1]['sma5(-1)'] and r[1]['cci(-1)'] < -100: BUY
+            #if r[1]['Close(-2)'] > r[1]['sma5(-2)'] and r[1]['Close(-1)'] < r[1]['sma5(-1)'] and r[1]['cci(-1)'] > 100:  SELL
 
+            #if df['Close'][-1] > df['maX][-1]: BUY
 
-            #####  (2) TEMA 30  #####
+            #####  (2) EMA  #####
+
+            #data['ema50'] = data['close'] / data['close'].ewm(50).mean()
+            #data['ema21'] = data['close'] / data['close'].ewm(21).mean()
+            #data['ema15'] = data['close'] / data['close'].ewm(14).mean()
+            #data['ema5'] = data['close'] / data['close'].ewm(5).mean()
+
+            #####  (3) TEMA 30  #####
             if ( _close > tema_30 ) and ( tema_30 > tema_30_1 ) and ( _close > close_1 ) and ( _close > ema_9 ) and ( ema_9 > ema_9_1) and ( ema_9 > tema_30):
-                advice.append("STRATEGY  [BULLISH]  (TEMA 30)")
+                advice.append("STRATEGY  [BULLISH]  (TEMA 30 1)")
 
             if ( _close < tema_30 ) and ( tema_30 < tema_30_1 ) and ( _close < close_1) and ( _close < ema_9 ) and ( ema_9 < ema_9_1):
-                advice.append("STRATEGY  [BEARISH]  (TEMA 30)")
+                advice.append("STRATEGY  [BEARISH]  (TEMA 30 1)")
 
 
 
-            #####  (3) ATR_14  & W%R  #####
+            #####  (4) ATR_14  & W%R  #####
             # To reduce the false signal, check the William %R value and should be on the oversold area and previously reach < -95
             if ( ema_9 - ( 2 * atr_14) > _open ) and ( _wr < -80) and ( willr_14_1 < -95 ) and ( _close > _open ):
                 advice.append("STRATEGY  [BULLISH]  (ATR_14 ; W%R)")
@@ -867,14 +959,38 @@ for myfile in ticker_files:
 
 
 
-            #####  (4) CCI signal buy - cciin range(-200,200) & cci > cci avf 4 days  #####
+            #####  (5) CCI signal buy - cciin range(-200,200) & cci > cci avf 4 days  #####
             #if ( _cci20 > -200 ) and ( _cci20 < 200 ) and ( _cci20 > df['CCI'].shift(1).rolling(4).mean()[-1] ):
             #    advice.append("STRATEGY  [BULLISH]  (CCI)")
 
             #if ( _cci20 > -200 ) and ( _cci20 < 200 ) and ( _cci20 < df['CCI'].shift(1).rolling(4).mean()[-1] ):
             #    advice.append("STRATEGY  [BEARISH]  (CCI)")
+
+            # if cci[i-1] > lower_band and cci[i] < lower_band:
+            # if cci[i-1] < upper_band and cci[i] > upper_band:
             
-            #####  (5) MACD  #####
+            #if cci <= -200:  ACTIVELY_BUY
+            #if cci >= 200:   ACTIVELY_SELL
+
+            # if r[1]['cci(-2)'] < -100 and r[1]['cci(-1)'] > -100:  BUY
+            # if r[1]['cci(-2)'] < 100 and r[1]['cci(-1)'] > 100:
+
+            if ( _cci20 > -100 ) & (_cci20_1 < -100):
+                advice.append("STRATEGY  [BULLISH]  (CCI_20 CROSSOVER)")
+
+            if ( _cci20 < 100 ) & ( _cci20_1 > 100):
+                advice.append("STRATEGY  [BEARISH]  (CCI_20 CROSSUNDER)")
+
+
+
+            #####  (6) MACD  #####
+            # https://github.com/yaoyao-wang/MACD/tree/bbd120436282ff34ffb092918fd661088820dc81
+            # If the MACD line crosses above 0, it is highly likely to be a bull market. And when it crosses below zero, the market tends to be bearish.
+            # Therefore, when the histogram is positive which means the MACD line is higher than the signal line, the indicator is considered bullish. 
+            # However, when the histogram is negative which means that the MACD line is larger than the signal line, the indicator is considered bearish.
+            # d['macd']>=d['signal']) & (d['macd_prev']<d['signal_prev'])  ==> BUY
+            # d['macd']<d['signal']) & (d['macd_prev']>=d['signal_prev'])  ==> SELL
+
             # CROSS_OVER from below 0
             if ( _macd < 0 ) and ( _macd_signal < 0) and ( _macd_hist_1 < 0 ) and (_macd_hist > 0 ) and ( _macd > _macd_1) and ( _macd_signal > _macd_signal_1 ) and ( _macd > _macd_signal ):
                 advice.append("STRATEGY  [BULLISH]  (MACD_CROSS_OVER)")
@@ -889,22 +1005,188 @@ for myfile in ticker_files:
             if ( _macd > 0 ) and ( _macd_signal > 0 ) and ( _macd > _macd_signal ) and ( _macd_hist < _macd_hist_1):
                 advice.append("STRATEGY  [BULLISH]  (MACD_SELL)")
 
+            #if k[i] < 30 and d[i] < 30 and macd[i] < -2 and macd_signal[i] < -2:
+            #if k[i] > 70 and d[i] > 70 and macd[i] > 2 and macd_signal[i] > 2:
 
-            #####  (6)  Stoch RSI  #####
+
+
+            #####  (7)  Stoch RSI  #####
             # https://github.com/angelassets/Binance-Trading-Bot/blob/Binance-Trading-Bot/modules/rsi_stoch_signalmod_djcommie.py
             # Stoch.RSI (25 - 52) & Stoch.RSI.K > Stoch.RSI.D, RSI (49-67), EMA10 > EMA20 > EMA100, Stoch.RSI = BUY, RSI = BUY, EMA10 = EMA20 = BUY
             if (_rsi - _rsi_1 >= 2.5) and ( _rsi >= 49 and _rsi <= 67) and ( _stock_rsi_k >= 25 and _stock_rsi_k <= 58) and '''(EMA10 > EMA20 and EMA20 > EMA100)''' and ( _stock_k - _stock_d >= 4.5):
                 advice.append("STRATEGY  [BULLISH]  (StochRSI)")
 
+            # Stoch RSI crossover
+            if ( df['TV_SRSI_k'][-1] < 20 ) and ( df['TV_SRSI_d'][-1] < 20 ) and ( df['TV_SRSI_k'][-1] > df['TV_SRSI_k'][-2] ) and ( df['TV_SRSI_d'][-2] >= df['TV_SRSI_k'][-2] ) and ( df['TV_SRSI_k'][-1] > df['TV_SRSI_d'][-1]):
+                advice.append("STRATEGY  [BULLISH]  (STOCH_RSI CROSSOVER from below)")
+
+            if ( df['TV_SRSI_k'][-1] > 80 ) and ( df['TV_SRSI_d'][-1] < 80 ) and ( df['TV_SRSI_k'][-1] < df['TV_SRSI_k'][-2] ) and ( df['TV_SRSI_d'][-2] < df['TV_SRSI_k'][-2] ) and ( df['TV_SRSI_k'][-1] < df['TV_SRSI_d'][-1]):
+                advice.append("STRATEGY  [BULLISH]  (STOCH_RSI CROSSUNDER from above)")            
+
+            # if k[i] < lower_band and d[i] < lower_band and k[i] < d[i]:
+            # if k[i] > upper_band and d[i] > upper_band and k[i] > d[i]:
 
 
+            #####  (8)  Stochastic  #####
+            #df['Enter Short'] = ((df['%K'] < df['%D']) & ( df['%K'].shift(1) > df['%D'].shift(1)) ) & ( df['%D']>80 ) & (df['Close'] < df['Rolling Mean'])
+            #df['Enter Long'] = ((df['%K']>df['%D']) & (df['%K'].shift(1) < df['%D'].shift(1))) & (df['%D'] < 20) & (df['Close'] > df['Rolling Mean'])
+
+            #data["BUY-SIGNAL"] = (data["STOCHASTIC %D LINE"] < 20) & (data["RSI"] < 50)
+            #data["SELL-SIGNAL"] = (data["RSI"] > 70) & (data["STOCHASTIC %D LINE"] > 80)
+
+            # if k[i-1] > 30 and d[i-1] > 30 and k[i] < 30 and d[i] < 30 and prices[i] < lower_bb[i]:
+            # if k[i-1] < 70 and d[i-1] < 70 and k[i] > 70 and d[i] > 70 and prices[i] > upper_bb[i]:
+
+            if df['k_slow'][-2] > 30 and df['d_slow'][-2] > 30 and df['k_slow'][-1] < 30 and df['d_slow'][-1] < 30 and _close < bb_low:
+                advice.append("STRATEGY  [BEARISH]  (STOCH)")
+            if df['k_slow'][-2] < 70 and df['d_slow'][-2] < 70 and df['k_slow'][-1] > 70 and df['d_slow'][-1] > 70 and _close > bb_up:   
+                advice.append("STRATEGY  [BEARISH]  (STOCH)")
+
+
+            # A buy signal is given when the oscillator falls below 20 and then rises above 20.
+            if df['k_slow'][-2] < 20 < df['k_slow'][-1] or df['d_slow'][-2] < 20 < df['d_slow'][-1]:
+                advice.append("STRATEGY  [BULLISH]  (Stochastic BUY  crossing 20)")
+            # A sell signal is given when the oscillator rises above the 80 and then falls below 80.
+            if df['k_slow'][-2] > 80 > df['k_slow'][-1] or df['d_slow'][-2] > 80 > df['d_slow'][-1]:
+                advice.append("STRATEGY  [BEARISH]  (Stochastic SELL  crossing 80)")
+ 
+
+ 
+            # A buy signal occurs when an increasing %K line crosses above the %D line in the  oversold region (%K < 20)
+            if df['k_slow'][-2] - df['k_slow'][-1] < 0 < df['k_slow'][-1] - df['d_slow'][-1] and df['k_slow'][-1] < 20:
+                advice.append("STRATEGY  [BULLISH]  (Stochastic BUY)")
+            # A sell signal occurs when a decreasing %K line crosses below the %D line in the overbought region (%K > 80)
+            if df['k_slow'][-2] - df['k_slow'][-1] > 0 > df['k_slow'][-1] - df['d_slow'][-1] and df['k_slow'][-1] > 80:
+                advice.append("STRATEGY  [BEARISH]  (Stochastic SELL)")
+
+
+
+            if ( df['k_slow'][-1]  < 20 ) & ( df['k_slow'][-1] > df['d_slow'][-1]):
+                advice.append("STRATEGY  [BULLISH]  (Stochastic BUY 2)")
+
+            if ( df['k_slow'][-1]  > 80 ) & ( df['k_slow'][-1] < df['d_slow'][-1]):
+                advice.append("STRATEGY  [BEARISH]  (Stochastic SELL 2)")
+
+
+            #####  (9)  BOL Bands  #####
+            if ( _close <= bb_low ):
+                # oversold
+                advice.append("STRATEGY  [BULLISH]  (BB 1)")
+
+            if ( _close >= bb_up ):
+                # oversold
+                advice.append("STRATEGY  [BEARISH]  (BB 1)")
+
+
+            if ( ( df['Close'][-1] <  df['BB_low'][-1] ) | (df['Open'][-1] < df['BB_low'][-1]) ):
+                advice.append("STRATEGY  [BULLISH]  (BB 2)")
+
+            if ( ( df['Close'][-1] > df['BB_low'][-1] ) | (df['Open'][-1] > df['BB_low'][-1]) ):
+                advice.append("STRATEGY  [BEARISH]  (BB 2)")
+
+
+            #####  (10)  KDJ  #####
+            # You get a buy signal from the KDJ indicator when the three curves converge. 
+            # The blue K line crosses the D line from bottom to top and then moves above the yellow J line. The purple D line is at the bottom.
+            # The signal is even stronger when the golden form appears under the 20 line, that is in the oversold area.
+
+            #A sell signal is received when the lines converge in a way that the blue line K crosses the line D from top to bottom. The blue line continues below the yellow and the purple one runs above the others.
+            #The signal is stronger when the dead fork of the KDJ oscillator occurs in the overbought zone that is above the line of 80 value.
+
+
+            #####  (11) W%R  #####
+            #if wr[i-1] > -80 and wr[i] < -80:   BUY
+            #if wr[i-1] < -20 and wr[i] > -20:   SELL
+
+            if df['WILLR_20'][-2] > -50 and df['WILLR_20'][-1] < -50 and _macd > _macd_signal:
+                advice.append("STRATEGY  [BULLISH]  (WILLR_20 MACD)")
+
+            if df['WILLR_20'][-2] < -50 and df['WILLR_20'][-1] > -50 and _macd < _macd_signal:
+                advice.append("STRATEGY  [BEARISH]  (WILLR_20 MACD)")
+
+
+            if ( df['WILLR_20'][-2] < -80 ) and ( df['WILLR_20'][-1] > -80 ):
+                advice.append("STRATEGY  [BULLISH]  (WILLR_20 CROSSOVER)")
+
+            if ( df['WILLR_20'][-2] < -20 ) and ( df['WILLR_20'][-1] < -20 ):
+                advice.append("STRATEGY  [BEARISH]  (WILLR_20 CROSSUNDER)")
+
+
+
+            #####  (12)  RSI BBOL TEMA  #####
+            # https://github.com/superduong/ALIN/blob/main/freqtrade/templates/sample_strategy.py
+            # RSI crosses above 30, tema below BB middle, tema is raising, Volume is not 0
+            if ( _rsi >= 30 ) and ( _rsi_1 < 30 ) and ( df['TEMA_9'][-1] <= df['BB_middle'][-1] ) and ( df['TEMA_9'][-1] > df['TEMA_9'][-2] ) and ( _vol > 0):
+                advice.append("STRATEGY  [BULLISH]  (RSI_BBOL_TEMA 1)")
+            
+            if ( _rsi >=70 ) and ( _rsi_1 < 70 ) and ( df['TEMA_9'][-1] > df['BB_middle'][-1] )  and ( df['TEMA_9'][-1] < df['TEMA_9'][-2] ) and ( _vol > 0):
+                 advice.append("STRATEGY  [BEARISH]  (RSI_BBOL_TEMA 1)")
+            
+
+
+            #####  (13) SMA 5; W%R  #####
+            if df['Close'][-2] < df['SMA_5'][-2] and df['Close'][-1] > df['SMA_5'][-1] and df['WILLR_20'][-1] < -80:
+                advice.append("STRATEGY  [BULLISH]  (SMA 5 ; W%R)")
+            
+            if df['Close'][-2] > df['SMA_5'][-2] and df['Close'][-1] < df['SMA_5'][-1] and df['WILLR_20'][-1] > -20:
+                advice.append("STRATEGY  [BEARISH]  (SMA 5 ; W%R)")
+
+
+
+            #####  (14) RSI  #####
+            #RSI signal buy - RSI in range(25-75) & RSI>RSI avg last 4 days
+            if ( df['RSI_14'][-1] > 25 ) &  ( df['RSI_14'][-1] < 75) & ( df['RSI_14'][-1] > df['RSI_14'].shift(1).rolling(window=5).mean()[-2] ):
+                advice.append("STRATEGY  [BULLISH]  (RSI_14 1)")
+
+            if ( df['RSI_14'][-1] > 25 ) & ( df['RSI_14'][-1] < 75 ) & ( df['RSI_14'][-1] < df['RSI_14'].shift(1).rolling(window=5).mean()[-2] ):
+                advice.append("STRATEGY  [BEARISH]  (RSI_14 1)")
+
+
+
+            #####  (13) CUSTOM  #####
+
+            # --------------   BUY ------------- #
+
+            if ( df['WILLR_20'][-2] < -80 ) and ( df['WILLR_20'][-1] > -80 ):
+                if ( _cci20 > -100 ) & (_cci20_1 < -100):
+                    if df['k_slow'][-2] < 20 < df['k_slow'][-1] or df['d_slow'][-2] < 20 < df['d_slow'][-1]:
+                        advice.append("STRATEGY  [BULLISH]  (CUSTOM WILLR_20, CCI_20, STOCH ===> CROSSOVER)")
+                        if ( settings['enable_discord']):
+                            discord_message = '  {:8s}  {:10s}   {:8s}%  {:30s} '.format ( symbol, price_string , _change_2dec, "STRATEGY  [CUSTOM BULLISH]  (CUSTOM WILLR_20, CCI_20, STOCH ===> CROSSOVER)" )
+                            send_discord_message (discord_url, symbol, symbol, discord_message)
+
+            if df['k_slow'][-2] < 20 < df['k_slow'][-1] or df['d_slow'][-2] < 20 < df['d_slow'][-1]:
+                if ( settings['enable_discord']):
+                    discord_message = '  {:8s}  {:10s}   {:8s}%  {:30s} '.format ( symbol, price_string , _change_2dec, "STRATEGY  [CUSTOM BULLISH]  (Stochastic BUY  crossing 20)" )
+                    send_discord_message (discord_url, symbol, symbol, discord_message)
+
+
+            # --------------   SELL ------------- #
+
+            if ( df['WILLR_20'][-2] < -20 ) and ( df['WILLR_20'][-1] < -20 ):
+                if ( _cci20 < 100 ) & ( _cci20_1 > 100):
+                        if df['k_slow'][-2] > 80 > df['k_slow'][-1] or df['d_slow'][-2] > 80 > df['d_slow'][-1]:
+                            advice.append("STRATEGY  [BEARISH]  (WILLR_20, CCI_20, STOCH ===> CROSSUNDER)")
+                            if ( settings['enable_discord']):
+                                discord_message = '  {:8s}  {:10s}   {:8s}%  {:30s} '.format ( symbol, price_string , _change_2dec, "STRATEGY  [CUSTOM BEARISH]  (WILLR_20, CCI_20, STOCH ===> CROSSUNDER)" )
+                                send_discord_message (discord_url, symbol, symbol, discord_message)
+
+            # A sell signal is given when the oscillator rises above the 80 and then falls below 80.
+            if df['k_slow'][-2] > 80 > df['k_slow'][-1] or df['d_slow'][-2] > 80 > df['d_slow'][-1]:
+                if ( settings['enable_discord']):
+                    discord_message = '  {:8s}  {:10s}   {:8s}%  {:30s} '.format ( symbol, price_string , _change_2dec, "STRATEGY  [CUSTOM BEARISH]  (Stochastic SELL  crossing 80)" )
+                    send_discord_message (discord_url, symbol, symbol, discord_message)
+
+
+
+            #################################################################################################################################################
             print ('  {:8s}  {:10s}   {:8s}%  {:25s}   {:20s} '.format (symbol, price_string , _change_2dec, recommendation, 'mAVE:' + mave_recommendation ))
 
 
             # if enable_discord  = 1 ( see setting above )
-            if ( settings['enable_discord']):
-                discord_message = '  {:8s}  {:10s}   {:8s}%  {:25s}   {:20s} '.format ( symbol, price_string , _change_2dec, recommendation, 'mAVE:' + mave_recommendation )
-                send_discord_message (discord_url, symbol, symbol, discord_message)
+            #if ( settings['enable_discord']):
+            #    discord_message = '  {:8s}  {:10s}   {:8s}%  {:25s}   {:20s} '.format ( symbol, price_string , _change_2dec, recommendation, 'mAVE:' + mave_recommendation )
+            #    send_discord_message (discord_url, symbol, symbol, discord_message)
 
 
             if ( len ( advice ) > 0):
